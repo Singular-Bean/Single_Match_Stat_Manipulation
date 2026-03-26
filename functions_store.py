@@ -40,6 +40,55 @@ statCategories = ['accurateCross', 'accurateLongBalls', 'accurateOppositionHalfP
                   'totalTackle', 'touches', 'unsuccessfulTouch', 'wasFouled', 'wonContest', 'wonTackle']
 statCategories.remove('goals')
 
+lineups = {}
+
+def getFormation(homeaway):
+    formation = []
+    if lineups[homeaway]['formation'] == '3-1-4-2':
+        formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '3-2-4-1':
+        formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
+    elif lineups[homeaway]['formation'] == '3-3-1-3':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'LM', 'AM', 'RW', 'ST', 'LW']
+    elif lineups[homeaway]['formation'] == '3-3-3-1':
+        formation = ['GK', 'CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'RW', 'AM', 'LW', 'ST']
+    elif lineups[homeaway]['formation'] == '3-4-1-2':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '3-4-2-1':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'AM', 'ST']
+    elif lineups[homeaway]['formation'] == '3-4-3':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'RW', 'ST', 'LW']
+    elif lineups[homeaway]['formation'] == '3-5-1-1':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'AM', 'ST']
+    elif lineups[homeaway]['formation'] == '3-5-2':
+        formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '4-1-3-2':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'CM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '4-1-4-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
+    elif lineups[homeaway]['formation'] == '4-2-2-2':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '4-2-3-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'AM', 'LW', 'ST']
+    elif lineups[homeaway]['formation'] == '4-2-4':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'RW', 'ST', 'ST', 'LW']
+    elif lineups[homeaway]['formation'] == '4-3-1-2':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '4-3-2-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST']
+    elif lineups[homeaway]['formation'] == '4-3-3':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'RW', 'ST', 'LW']
+    elif lineups[homeaway]['formation'] == '4-4-1-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST']
+    elif lineups[homeaway]['formation'] == '4-4-2':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '4-5-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST']
+    elif lineups[homeaway]['formation'] == '5-3-2':
+        formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'ST', 'ST']
+    elif lineups[homeaway]['formation'] == '5-4-1':
+        formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST']
+    return formation
 
 def jsonRequest(url, cache_ttl=None, defaultSession=None):
     if cache_ttl is None:
