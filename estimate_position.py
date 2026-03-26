@@ -10,14 +10,17 @@ from sklearn.metrics import brier_score_loss
 import shap
 import datetime
 from scipy.optimize import linear_sum_assignment
+from sklearn.utils.class_weight import compute_sample_weight
 import math
 import itertools
-from functions_store import round_sig, getFullTeamName
+from functions_store import round_sig, getFullTeamName, MLModel
 
 leagueId = 17
-#seasonId = 61627
-#seasonId = 52186
-seasonId = 41886
+seasonId = 61627
+
+
+# seasonId = 52186
+# seasonId = 41886
 
 def jsonRequest(url, cache_ttl=None):
     if cache_ttl is None:
@@ -45,11 +48,14 @@ def getSeasonStatList(leagueId, seasonId):
             'events']
         for event in roundEvents:
             if safe_request(f"http://www.sofascore.com/api/v1/event/{event['id']}/lineups",
-                            cache_ttl=0).status_code == 200 and safe_request(f"http://www.sofascore.com/api/v1/event/{event['id']}/average-positions", cache_ttl=0).status_code == 200:
+                            cache_ttl=0).status_code == 200 and safe_request(
+                f"http://www.sofascore.com/api/v1/event/{event['id']}/average-positions",
+                cache_ttl=0).status_code == 200:
                 matchIds.append(event['id'])
     for matchId in matchIds:
         lineups = jsonRequest(f"http://www.sofascore.com/api/v1/event/{matchId}/lineups", cache_ttl=0)
-        averagePositions = jsonRequest(f"http://www.sofascore.com/api/v1/event/{matchId}/average-positions", cache_ttl=0)
+        averagePositions = jsonRequest(f"http://www.sofascore.com/api/v1/event/{matchId}/average-positions",
+                                       cache_ttl=0)
         for x in lineups['home']['players']:
             x = lineups['home']['players'].index(x)
             if x < 11:
@@ -62,47 +68,47 @@ def getSeasonStatList(leagueId, seasonId):
                         averageY = y['averageY']
                 formation = []
                 if lineups['home']['formation'] == '3-1-4-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '3-2-4-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['home']['formation'] == '3-3-1-3':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'WM', 'AM', 'W', 'ST', 'W']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'LM', 'AM', 'RW', 'ST', 'LW']
                 elif lineups['home']['formation'] == '3-3-3-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'W', 'AM', 'W', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'RW', 'AM', 'LW', 'ST']
                 elif lineups['home']['formation'] == '3-4-1-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '3-4-2-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'AM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'AM', 'ST']
                 elif lineups['home']['formation'] == '3-4-3':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'W', 'ST', 'W']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'RW', 'ST', 'LW']
                 elif lineups['home']['formation'] == '3-5-1-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'AM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'AM', 'ST']
                 elif lineups['home']['formation'] == '3-5-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '4-1-4-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['home']['formation'] == '4-2-2-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '4-2-3-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'AM', 'W', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'AM', 'LW', 'ST']
                 elif lineups['home']['formation'] == '4-2-4':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'W', 'ST', 'ST', 'W']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'RW', 'ST', 'ST', 'LW']
                 elif lineups['home']['formation'] == '4-3-1-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '4-3-2-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST']
                 elif lineups['home']['formation'] == '4-3-3':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'W', 'ST', 'W']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'RW', 'ST', 'LW']
                 elif lineups['home']['formation'] == '4-4-1-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST']
                 elif lineups['home']['formation'] == '4-4-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '4-5-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['home']['formation'] == '5-3-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'ST', 'ST']
                 elif lineups['home']['formation'] == '5-4-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST']
                 playerMatchId = int(str(player['player']['id']) + str(matchId))
                 player['statistics']['averageX'] = averageX
                 player['statistics']['averageY'] = averageY
@@ -120,47 +126,47 @@ def getSeasonStatList(leagueId, seasonId):
                         averageY = y['averageY']
                 formation = []
                 if lineups['away']['formation'] == '3-1-4-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '3-2-4-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'DM', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['away']['formation'] == '3-3-1-3':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'WM', 'AM', 'W', 'ST', 'W']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'LM', 'AM', 'RW', 'ST', 'LW']
                 elif lineups['away']['formation'] == '3-3-3-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'W', 'AM', 'W', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'RW', 'AM', 'LW', 'ST']
                 elif lineups['away']['formation'] == '3-4-1-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '3-4-2-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'AM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'AM', 'ST']
                 elif lineups['away']['formation'] == '3-4-3':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'W', 'ST', 'W']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'RW', 'ST', 'LW']
                 elif lineups['away']['formation'] == '3-5-1-1':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'AM', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'AM', 'ST']
                 elif lineups['away']['formation'] == '3-5-2':
-                    formation = ['GK', 'CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '4-1-4-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['away']['formation'] == '4-2-2-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '4-2-3-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'AM', 'W', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'AM', 'LW', 'ST']
                 elif lineups['away']['formation'] == '4-2-4':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'W', 'ST', 'ST', 'W']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'RW', 'ST', 'ST', 'LW']
                 elif lineups['away']['formation'] == '4-3-1-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '4-3-2-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST']
                 elif lineups['away']['formation'] == '4-3-3':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'W', 'ST', 'W']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'RW', 'ST', 'LW']
                 elif lineups['away']['formation'] == '4-4-1-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST']
                 elif lineups['away']['formation'] == '4-4-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '4-5-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST']
                 elif lineups['away']['formation'] == '5-3-2':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'ST', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'ST', 'ST']
                 elif lineups['away']['formation'] == '5-4-1':
-                    formation = ['GK', 'FB', 'CB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST']
+                    formation = ['GK', 'RB', 'CB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST']
                 playerMatchId = int(str(player['player']['id']) + str(matchId))
                 player['statistics']['averageX'] = averageX
                 player['statistics']['averageY'] = averageY
@@ -187,141 +193,116 @@ def importAndTransformDict(file_path):
     return df
 
 
-#with open('data/playerStats2223.json', "w", encoding="utf-8") as f:
+# with open('data/positionalStatsPrem2425.json', "w", encoding="utf-8") as f:
 #   json.dump(getSeasonStatList(leagueId, seasonId), f, indent=4)
 
 
-"""
-statCategories = []
-for x in data.keys():
-    for y in data[x].keys():
-        if y not in statCategories:
-            statCategories.append(y)
-statCategories.sort()
-"""
-
 statCategories = ['accurateCross', 'accurateLongBalls', 'accurateOppositionHalfPasses', 'accurateOwnHalfPasses',
-                  'accuratePass', 'aerialLost', 'aerialWon', 'averageX', 'averageY', 'ballRecovery', 'bigChanceCreated', 'bigChanceMissed',
-                  'blockedScoringAttempt', 'challengeLost', 'clearanceOffLine', 'dispossessed', 'duelLost', 'duelWon',
-                  'errorLeadToAGoal', 'errorLeadToAShot', 'expectedAssists', 'expectedGoals', 'expectedGoalsOnTarget',
-                  'fouls', 'goalAssist', 'goals', 'hitWoodwork', 'interceptionWon', 'keyPass', 'lastManTackle',
-                  'minutesPlayed', 'onTargetScoringAttempt', 'outfielderBlock', 'ownGoals', 'penaltyConceded',
-                  'penaltyMiss', 'penaltyWon', 'position', 'possessionLostCtrl', 'rating', 'ratingVersions',
-                  'shotOffTarget', 'totalClearance', 'totalContest', 'totalCross', 'totalLongBalls', 'totalOffside',
-                  'totalOppositionHalfPasses', 'totalOwnHalfPasses', 'totalPass', 'totalShots', 'totalTackle',
-                  'touches', 'unsuccessfulTouch', 'wasFouled', 'wonContest', 'wonTackle']
-statCategories.remove('goals')
+                  'accuratePass', 'aerialLost', 'aerialWon', 'averageX', 'averageY', 'ballRecovery', 'bigChanceCreated',
+                  'bigChanceMissed', 'blockedScoringAttempt', 'challengeLost', 'clearanceOffLine', 'dispossessed',
+                  'duelLost', 'duelWon', 'errorLeadToAGoal', 'errorLeadToAShot', 'expectedAssists', 'expectedGoals',
+                  'expectedGoalsOnTarget', 'fouls', 'goalAssist', 'goals', 'hitWoodwork', 'interceptionWon', 'keyPass',
+                  'lastManTackle', 'minutesPlayed', 'onTargetScoringAttempt', 'outfielderBlock', 'ownGoals',
+                  'penaltyConceded', 'penaltyMiss', 'penaltyWon', 'position', 'possessionLostCtrl', 'rating',
+                  'ratingVersions', 'shotOffTarget', 'totalClearance', 'totalContest', 'totalCross', 'totalLongBalls',
+                  'totalOffside', 'totalOppositionHalfPasses', 'totalOwnHalfPasses', 'totalPass', 'totalShots',
+                  'totalTackle', 'touches', 'unsuccessfulTouch', 'wasFouled', 'wonContest', 'wonTackle']
 
-positions = ["FB", "CB", "DM", "WM", "CM", "W", "AM", "ST"]
+# statCategories.remove('goals')
 
-formations = [('CB', 'CB', 'CB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST'),
-              ('CB', 'CB', 'CB', 'DM', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'WM', 'AM', 'W', 'ST', 'W'),
-              ('CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'W', 'AM', 'W', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'AM', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'AM', 'AM', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'W', 'ST', 'W'),
-              ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'W', 'ST', 'W'),
-              ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'AM', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'CM', 'CM', 'WM', 'AM', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST', 'ST'),
-              ('CB', 'CB', 'CB', 'WM', 'DM', 'CM', 'CM', 'WM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'AM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'W', 'CM', 'CM', 'W', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'AM', 'W', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'W', 'ST', 'ST', 'W'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'ST', 'ST', 'W'),
-              ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'AM', 'AM', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'W', 'ST', 'W'),
-              ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'AM', 'W', 'ST', 'W'),
-              ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'CM', 'W', 'ST', 'W'),
-              ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'WM', 'DM', 'DM', 'WM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST'),
-              ('FB', 'CB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'ST', 'ST'),
-              ('FB', 'CB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST'),
-              ('FB', 'CB', 'CB', 'CB', 'FB', 'W', 'CM', 'CM', 'W', 'ST')]
+positions = ["RB", "LB", "CB", "DM", "RM", "LM", "CM", "RW", "LW", "AM", "ST"]
+
+formations = [('CB', 'CB', 'CB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST'),
+              ('CB', 'CB', 'CB', 'DM', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'LM', 'AM', 'RW', 'ST', 'LW'),
+              ('CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'RW', 'AM', 'LW', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'AM', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'AM', 'AM', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'RW', 'ST', 'LW'),
+              ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'RW', 'ST', 'LW'),
+              ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'AM', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'CM', 'CM', 'LM', 'AM', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST', 'ST'),
+              ('CB', 'CB', 'CB', 'RM', 'DM', 'CM', 'CM', 'LM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'AM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'RW', 'CM', 'CM', 'LW', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'AM', 'LW', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'RW', 'ST', 'ST', 'LW'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'ST', 'ST', 'LW'),
+              ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'AM', 'AM', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'RW', 'ST', 'LW'),
+              ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'AM', 'RW', 'ST', 'LW'),
+              ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'CM', 'RW', 'ST', 'LW'),
+              ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'RM', 'DM', 'DM', 'LM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST'),
+              ('RB', 'CB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'ST', 'ST'),
+              ('RB', 'CB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST'),
+              ('RB', 'CB', 'CB', 'CB', 'LB', 'RW', 'CM', 'CM', 'LW', 'ST')]
 
 formationsKey = {
-    ('CB', 'CB', 'CB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST') : '3-1-4-2',
-    ('CB', 'CB', 'CB', 'DM', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST') : '3-2-4-1',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'WM', 'AM', 'W', 'ST', 'W') : '3-3-1-3',
-    ('CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'W', 'AM', 'W', 'ST') : '3-3-3-1',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST', 'ST') : '3-4-1-2',
-    ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST', 'ST') : '3-4-1-2 (2)',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'AM', 'AM', 'ST') : '3-4-2-1',
-    ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'AM', 'AM', 'ST') : '3-4-2-1 (2)',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'DM', 'WM', 'W', 'ST', 'W') : '3-4-3',
-    ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'WM', 'W', 'ST', 'W') : '3-4-3 (2)',
-    ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'AM', 'ST') : '3-5-1-1',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'CM', 'CM', 'WM', 'AM', 'ST') : '3-5-1-1 (2)',
-    ('CB', 'CB', 'CB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST', 'ST') : '3-5-2',
-    ('CB', 'CB', 'CB', 'WM', 'DM', 'CM', 'CM', 'WM', 'ST', 'ST') : '3-5-2 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'AM', 'ST', 'ST') : '4-1-2-1-2',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'WM', 'CM', 'CM', 'WM', 'ST') : '4-1-4-1',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'W', 'CM', 'CM', 'W', 'ST') : '4-1-4-1 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST') : '4-2-2-2',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'AM', 'W', 'ST') : '4-2-3-1',
-    ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'W', 'ST', 'ST', 'W') : '4-2-4',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'W', 'ST', 'ST', 'W') : '4-2-4 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST') : '4-3-1-2',
-    ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST') : '4-3-2-1',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'AM', 'AM', 'ST') : '4-3-2-1 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'W', 'ST', 'W'): '4-3-3',
-    ('FB', 'CB', 'CB', 'FB', 'CM', 'CM', 'AM', 'W', 'ST', 'W'): '4-3-3 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'DM', 'DM', 'CM', 'W', 'ST', 'W'): '4-3-3 (3)',
-    ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'AM', 'ST'): '4-4-1-1',
-    ('FB', 'CB', 'CB', 'FB', 'WM', 'DM', 'DM', 'WM', 'AM', 'ST'): '4-4-1-1 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST', 'ST'): '4-4-2',
-    ('FB', 'CB', 'CB', 'FB', 'WM', 'DM', 'DM', 'WM', 'ST', 'ST'): '4-4-2 (2)',
-    ('FB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'CM', 'WM', 'ST'): '4-5-1',
-    ('FB', 'CB', 'CB', 'CB', 'FB', 'CM', 'CM', 'CM', 'ST', 'ST'): '5-3-2',
-    ('FB', 'CB', 'CB', 'CB', 'FB', 'DM', 'CM', 'CM', 'ST', 'ST'): '5-3-2 (2)',
-    ('FB', 'CB', 'CB', 'CB', 'FB', 'WM', 'CM', 'CM', 'WM', 'ST'): '5-4-1',
-    ('FB', 'CB', 'CB', 'CB', 'FB', 'W', 'CM', 'CM', 'W', 'ST'): '5-4-1 (2)'
+    ('CB', 'CB', 'CB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST'): '3-1-4-2',
+    ('CB', 'CB', 'CB', 'DM', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST'): '3-2-4-1',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'LM', 'AM', 'RW', 'ST', 'LW'): '3-3-1-3',
+    ('CB', 'CB', 'CB', 'CM', 'CM', 'CM', 'RW', 'AM', 'LW', 'ST'): '3-3-3-1',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST', 'ST'): '3-4-1-2',
+    ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST', 'ST'): '3-4-1-2 (2)',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'AM', 'AM', 'ST'): '3-4-2-1',
+    ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'AM', 'AM', 'ST'): '3-4-2-1 (2)',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'DM', 'LM', 'RW', 'ST', 'LW'): '3-4-3',
+    ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'LM', 'RW', 'ST', 'LW'): '3-4-3 (2)',
+    ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'AM', 'ST'): '3-5-1-1',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'CM', 'CM', 'LM', 'AM', 'ST'): '3-5-1-1 (2)',
+    ('CB', 'CB', 'CB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST', 'ST'): '3-5-2',
+    ('CB', 'CB', 'CB', 'RM', 'DM', 'CM', 'CM', 'LM', 'ST', 'ST'): '3-5-2 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'AM', 'ST', 'ST'): '4-1-2-1-2',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'RM', 'CM', 'CM', 'LM', 'ST'): '4-1-4-1',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'RW', 'CM', 'CM', 'LW', 'ST'): '4-1-4-1 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'AM', 'AM', 'ST', 'ST'): '4-2-2-2',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'AM', 'LW', 'ST'): '4-2-3-1',
+    ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'RW', 'ST', 'ST', 'LW'): '4-2-4',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'RW', 'ST', 'ST', 'LW'): '4-2-4 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'ST', 'ST'): '4-3-1-2',
+    ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'AM', 'AM', 'ST'): '4-3-2-1',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'AM', 'AM', 'ST'): '4-3-2-1 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'RW', 'ST', 'LW'): '4-3-3',
+    ('RB', 'CB', 'CB', 'LB', 'CM', 'CM', 'AM', 'RW', 'ST', 'LW'): '4-3-3 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'DM', 'DM', 'CM', 'RW', 'ST', 'LW'): '4-3-3 (3)',
+    ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'AM', 'ST'): '4-4-1-1',
+    ('RB', 'CB', 'CB', 'LB', 'RM', 'DM', 'DM', 'LM', 'AM', 'ST'): '4-4-1-1 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST', 'ST'): '4-4-2',
+    ('RB', 'CB', 'CB', 'LB', 'RM', 'DM', 'DM', 'LM', 'ST', 'ST'): '4-4-2 (2)',
+    ('RB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'CM', 'LM', 'ST'): '4-5-1',
+    ('RB', 'CB', 'CB', 'CB', 'LB', 'CM', 'CM', 'CM', 'ST', 'ST'): '5-3-2',
+    ('RB', 'CB', 'CB', 'CB', 'LB', 'DM', 'CM', 'CM', 'ST', 'ST'): '5-3-2 (2)',
+    ('RB', 'CB', 'CB', 'CB', 'LB', 'RM', 'CM', 'CM', 'LM', 'ST'): '5-4-1',
+    ('RB', 'CB', 'CB', 'CB', 'LB', 'RW', 'CM', 'CM', 'LW', 'ST'): '5-4-1 (2)'
 }
-
-combinedDF = pd.concat(
-    (importAndTransformDict("data/playerStats2223.json"), importAndTransformDict("data/playerStats2324.json"),
-     importAndTransformDict("data/playerStats2425.json")), ignore_index=True)
-
-X = combinedDF.drop(columns=['position', 'ratingVersions'])
-X[list(X.columns)] = combinedDF[list(X.columns)].apply(pd.to_numeric, errors='coerce')
-
-y_position = combinedDF['position']
 
 key = {
-    "FB": 0,
-    "CB": 1,
-    "DM": 2,
-    "WM": 3,
-    "CM": 4,
-    "W": 5,
-    "AM": 6,
-    "ST": 7
+    "RB": 0,
+    "LB": 1,
+    "CB": 2,
+    "DM": 3,
+    "RM": 4,
+    "LM": 5,
+    "CM": 6,
+    "RW": 7,
+    "LW": 8,
+    "AM": 9,
+    "ST": 10
 }
-y = y_position.map(key)
-y = y.apply(pd.to_numeric, errors='coerce')
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-model = XGBClassifier()
-model.fit(X_train, y_train)
-
-y_pred = model.predict(X_test)
-y_prob = model.predict_proba(X_test)
-
-print("Accuracy:", accuracy_score(y_test, y_pred))
-
-print(y_prob[0])
+model, X = MLModel()
 
 TeamA = input("\nName the home team: ")
 homeTeam = getFullTeamName(TeamA)
@@ -329,7 +310,10 @@ TeamB = input("\nName the away team: ")
 awayTeam = getFullTeamName(TeamB)
 
 searches = jsonRequest(f"http://www.sofascore.com/api/v1/search/events?q={homeTeam}%20{awayTeam}&page=0")['results']
-
+if safe_request(f"http://www.sofascore.com/api/v1/search/events?q={homeTeam}%20{awayTeam}&page=1"):
+    searches.extend(jsonRequest(f"http://www.sofascore.com/api/v1/search/events?q={homeTeam}%20{awayTeam}&page=1")['results'])
+if safe_request(f"http://www.sofascore.com/api/v1/search/events?q={homeTeam}%20{awayTeam}&page=2"):
+    searches.extend(jsonRequest(f"http://www.sofascore.com/api/v1/search/events?q={homeTeam}%20{awayTeam}&page=2")['results'])
 matchList = []
 
 for results in searches:
@@ -419,9 +403,9 @@ def show_player_probabilities(player_index, prob_matrix, key, home=True):
         "Probability": [float(f"{p:.4f}") for p in probs]
     }).sort_values(by="Probability", ascending=False).reset_index(drop=True)
     if home:
-        print(f"\nProbabilities for Player {homePlayerKey[player_index+1]}:")
+        print(f"\nProbabilities for Player {homePlayerKey[player_index + 1]}:")
     else:
-        print(f"\nProbabilities for Player {awayPlayerKey[player_index+1]}:")
+        print(f"\nProbabilities for Player {awayPlayerKey[player_index + 1]}:")
     print(df.to_string(index=False))
     return df
 
@@ -434,7 +418,6 @@ def formation_likelihood(prob_matrix, formation, positions, return_mapping=False
     2. Uses Hungarian algorithm to optimally assign remaining players to remaining positions.
     3. Returns total absolute probability and optional mapping.
     """
-
 
     n_players = prob_matrix.shape[0]
     slots = list(formation)
@@ -496,6 +479,7 @@ def formation_likelihood(prob_matrix, formation, positions, return_mapping=False
 
     return total_prob
 
+
 def teamEval(xProb, teamName, home=True):
     formation_scores = []
     for f in formations:
@@ -529,10 +513,11 @@ def teamEval(xProb, teamName, home=True):
     print(f"\nOptimal player-to-position mapping for {teamName}:\n")
     if home:
         for player, position, prob in mapping:
-            print(f"Player {player+1} ({homePlayerKey[player+1]}) → {position} ({prob:.4f})")
+            print(f"Player {player + 1} ({homePlayerKey[player + 1]}) → {position} ({prob:.4f})")
     else:
         for player, position, prob in mapping:
-            print(f"Player {player+1} ({awayPlayerKey[player+1]}) → {position} ({prob:.4f})")
+            print(f"Player {player + 1} ({awayPlayerKey[player + 1]}) → {position} ({prob:.4f})")
+
 
 teamEval(homeProb, homeTeam)
 teamEval(awayProb, awayTeam, home=False)

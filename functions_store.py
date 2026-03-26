@@ -10,32 +10,35 @@ from sklearn.metrics import brier_score_loss
 import shap
 import datetime
 from scipy.optimize import linear_sum_assignment
+from sklearn.utils.class_weight import compute_sample_weight
 import math
 import itertools
 
 key = {
-    "FB": 0,
-    "CB": 1,
-    "DM": 2,
-    "WM": 3,
-    "CM": 4,
-    "W": 5,
-    "AM": 6,
-    "ST": 7
+    "RB": 0,
+    "LB": 1,
+    "CB": 2,
+    "DM": 3,
+    "RM": 4,
+    "LM": 5,
+    "CM": 6,
+    "RW": 7,
+    "LW": 8,
+    "AM": 9,
+    "ST": 10
 }
 
 statCategories = ['accurateCross', 'accurateLongBalls', 'accurateOppositionHalfPasses', 'accurateOwnHalfPasses',
-                  'accuratePass', 'aerialLost', 'aerialWon', 'ballRecovery', 'bigChanceCreated', 'bigChanceMissed',
-                  'blockedScoringAttempt', 'challengeLost', 'clearanceOffLine', 'dispossessed', 'duelLost',
-                  'duelWon',
-                  'errorLeadToAGoal', 'errorLeadToAShot', 'expectedAssists', 'expectedGoals',
-                  'expectedGoalsOnTarget',
-                  'fouls', 'goalAssist', 'goals', 'hitWoodwork', 'interceptionWon', 'keyPass', 'lastManTackle',
-                  'minutesPlayed', 'onTargetScoringAttempt', 'outfielderBlock', 'ownGoals', 'penaltyConceded',
-                  'penaltyMiss', 'penaltyWon', 'position', 'possessionLostCtrl', 'rating', 'ratingVersions',
-                  'shotOffTarget', 'totalClearance', 'totalContest', 'totalCross', 'totalLongBalls', 'totalOffside',
-                  'totalOppositionHalfPasses', 'totalOwnHalfPasses', 'totalPass', 'totalShots', 'totalTackle',
-                  'touches', 'unsuccessfulTouch', 'wasFouled', 'wonContest', 'wonTackle']
+                  'accuratePass', 'aerialLost', 'aerialWon', 'averageX', 'averageY', 'ballRecovery', 'bigChanceCreated',
+                  'bigChanceMissed', 'blockedScoringAttempt', 'challengeLost', 'clearanceOffLine', 'dispossessed',
+                  'duelLost', 'duelWon', 'errorLeadToAGoal', 'errorLeadToAShot', 'expectedAssists', 'expectedGoals',
+                  'expectedGoalsOnTarget', 'fouls', 'goalAssist', 'goals', 'hitWoodwork', 'interceptionWon', 'keyPass',
+                  'lastManTackle', 'minutesPlayed', 'onTargetScoringAttempt', 'outfielderBlock', 'ownGoals',
+                  'penaltyConceded', 'penaltyMiss', 'penaltyWon', 'position', 'possessionLostCtrl', 'rating',
+                  'ratingVersions', 'shotOffTarget', 'totalClearance', 'totalContest', 'totalCross', 'totalLongBalls',
+                  'totalOffside', 'totalOppositionHalfPasses', 'totalOwnHalfPasses', 'totalPass', 'totalShots',
+                  'totalTackle', 'touches', 'unsuccessfulTouch', 'wasFouled', 'wonContest', 'wonTackle']
+statCategories.remove('goals')
 
 
 def jsonRequest(url, cache_ttl=None, defaultSession=None):
@@ -46,8 +49,8 @@ def jsonRequest(url, cache_ttl=None, defaultSession=None):
         resp = safe_request(url, cache_ttl=cache_ttl, defaultSession=defaultSession)
     return resp.json()
 
-def importAndTransformDict(file_path):
 
+def importAndTransformDict(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -64,10 +67,13 @@ def importAndTransformDict(file_path):
     df = pd.DataFrame(data).T
     return df
 
+
 def MLModel():
     combinedDF = pd.concat(
-        (importAndTransformDict("data/playerStats2223.json"), importAndTransformDict("data/playerStats2324.json"), importAndTransformDict("data/playerStats2425.json")), ignore_index=True)
-
+        (importAndTransformDict("data/positionalStatsPrem2223.json"),
+         importAndTransformDict("data/positionalStatsPrem2324.json"),
+         importAndTransformDict("data/positionalStatsPrem2425.json")), ignore_index=True)
+    combinedDF = combinedDF[statCategories]
     X = combinedDF.drop(columns=['position', 'ratingVersions'])
     X[list(X.columns)] = combinedDF[list(X.columns)].apply(pd.to_numeric, errors='coerce')
 
@@ -76,10 +82,22 @@ def MLModel():
     y = y_position.map(key)
     y = y.apply(pd.to_numeric, errors='coerce')
 
-    model = XGBClassifier()
-    model.fit(X, y)
+    sampleWeights = compute_sample_weight(class_weight='balanced', y=y)
+
+    model = XGBClassifier(
+        objective='multi:softprob',
+        eval_metric='mlogloss',
+        max_depth=4,
+        learning_rate=0.1,
+        n_estimators=150,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42
+    )
+    model.fit(X, y, sample_weight=sampleWeights)
 
     return model, X
+
 
 def matchProbs(matchId, model, X):
     lineups = jsonRequest(f"http://www.sofascore.com/api/v1/event/{matchId}/lineups")
@@ -126,6 +144,7 @@ def matchProbs(matchId, model, X):
     homeProb = model.predict_proba(homePlayerStats)
     awayProb = model.predict_proba(awayPlayerStats)
     return homeProb, awayProb
+
 
 def formation_likelihood(prob_matrix, formation, positions, return_mapping=False):
     """
@@ -189,7 +208,7 @@ def formation_likelihood(prob_matrix, formation, positions, return_mapping=False
     # --- Stage 4: Optional mapping output ---
     if return_mapping:
         mapping = [
-            (f"Player {p+1}", slots[s], float(prob_matrix[p, positions.index(slots[s])]))
+            (f"Player {p + 1}", slots[s], float(prob_matrix[p, positions.index(slots[s])]))
             for p, s in all_pairs
         ]
         return total_prob, mapping
@@ -207,16 +226,16 @@ def round_sig(x, sig=3):
     # round numerically to significant figures
     rounded = round(x, -int(np.floor(np.log10(abs(x)))) + (sig - 1))
     # format as fixed-point (avoiding scientific notation)
-    formatted = f"{rounded:.{sig+6}f}".rstrip("0").rstrip(".")
+    formatted = f"{rounded:.{sig + 6}f}".rstrip("0").rstrip(".")
     # ensure there's always a 0 before the decimal if number < 1
     if formatted.startswith("."):
         formatted = "0" + formatted
     return formatted
 
 
-def scale_ratings_to_10(ratings):
+def scale_ratings_to_10(ratings, give=0):
     """
-    Scales a list or array of player ratings to the range [1, 10].
+    Scales a list or array of player ratings to the range [0, 10].
     """
     ratings = np.array(ratings, dtype=float)
     min_r, max_r = np.min(ratings), np.max(ratings)
@@ -224,16 +243,17 @@ def scale_ratings_to_10(ratings):
     if min_r == max_r:
         return np.full_like(ratings, 5)
 
-    scaled = 1 + 9 * (ratings - min_r) / (max_r - min_r)
+    scaled = give + (10 - give) * (ratings - min_r) / (max_r - min_r)
     return scaled
 
-def importJson(file_path):
 
+def importJson(file_path):
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
     return data
+
 
 def getFullTeamName(name):
     data = jsonRequest(f"http://www.sofascore.com/api/v1/search/teams?q={name}&page=0")['results']
@@ -244,6 +264,7 @@ def getFullTeamName(name):
             print(f"{count}. {i['entity']['name']} ({i['entity']['gender']})")
     choice = input("Which number would you like to choose? ")
     return data[int(choice) - 1]['entity']['name']
+
 
 def zeroDivide(numerator, denominator):
     if denominator == 0:
